@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU availability</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='1' width='6' height='6' rx='1.5' fill='%232a78d6'/><rect x='9' y='1' width='6' height='6' rx='1.5' fill='%23c3c2b7'/><rect x='1' y='9' width='6' height='6' rx='1.5' fill='%23c3c2b7'/><rect x='9' y='9' width='6' height='6' rx='1.5' fill='%232a78d6'/></svg>">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --free: #2a78d6; --free-wash: rgba(42,120,214,0.10); --busy: #d6d5ce; --offline: #898781;
+  --good: #0ca30c; --good-text: #006300; --warning: #fab219; --critical: #d03b3b;
+  --seq: #cde2fb,#b7d3f6,#9ec5f4,#86b6ef,#6da7ec,#5598e7,#3987e5,#2a78d6,#256abf,#1c5cab,#184f95,#104281,#0d366b;
+  --empty: #f0efec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --free: #3987e5; --free-wash: rgba(57,135,229,0.14); --busy: #3d3d3a; --offline: #6b6a66;
+    --good-text: #0ca30c;
+    --seq: #0d366b,#104281,#184f95,#1c5cab,#256abf,#2a78d6,#3987e5,#5598e7,#6da7ec,#86b6ef,#9ec5f4,#b7d3f6,#cde2fb;
+    --empty: #232321;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --free: #3987e5; --free-wash: rgba(57,135,229,0.14); --busy: #3d3d3a; --offline: #6b6a66;
+  --good-text: #0ca30c;
+  --seq: #0d366b,#104281,#184f95,#1c5cab,#256abf,#2a78d6,#3987e5,#5598e7,#6da7ec,#86b6ef,#9ec5f4,#b7d3f6,#cde2fb;
+  --empty: #232321;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+h1 { font-size: 22px; font-weight: 650; margin: 0 0 2px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; font-weight: 650; margin: 0; }
+.sub { color: var(--ink-2); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.card {
+  background: var(--surface); border-radius: 12px; box-shadow: 0 0 0 1px var(--ring);
+  padding: 18px 20px;
+}
+section { margin-top: 28px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.section-head p { margin: 2px 0 0; }
+button.toggle, .chip {
+  font: inherit; font-size: 13px; color: var(--ink-2); background: var(--surface);
+  border: 0; box-shadow: 0 0 0 1px var(--ring); border-radius: 999px; padding: 5px 12px; cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); box-shadow: none; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 1px; }
+.live-dot.stale { background: var(--warning); }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(280px, 1.3fr) repeat(3, minmax(140px, 1fr)); gap: 12px; }
+.hero .big { font-size: 56px; font-weight: 650; line-height: 1; letter-spacing: -0.02em; margin: 6px 0 8px; }
+.tile .label { color: var(--ink-2); font-size: 13px; }
+.tile .value { font-size: 30px; font-weight: 600; margin-top: 6px; line-height: 1.1; }
+.tile .note { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* type cards */
+.types { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.type-card .top { display: flex; justify-content: space-between; align-items: baseline; }
+.type-card .name { font-weight: 650; font-size: 15px; letter-spacing: 0.02em; text-transform: uppercase; }
+.type-card .value { font-size: 34px; font-weight: 600; line-height: 1; margin: 12px 0 2px; }
+.type-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 12px 0 0; font-size: 13px; }
+.type-card dt { color: var(--muted); }
+.type-card dd { margin: 0; text-align: right; color: var(--ink-2); }
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+.badge .ico { margin-right: 4px; }
+.badge.ok { color: var(--good-text); }
+.segbar { display: flex; gap: 2px; height: 8px; margin-top: 12px; }
+.segbar span { border-radius: 4px; min-width: 0; }
+.seg-free { background: var(--free); }
+.seg-busy { background: var(--busy); }
+.seg-off { background: repeating-linear-gradient(45deg, var(--offline) 0 2px, transparent 2px 5px); }
+.key { display: flex; gap: 16px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; }
+.key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* when table */
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--grid); }
+th { font-weight: 600; color: var(--ink-2); font-size: 12px; }
+td.type { font-weight: 650; text-transform: uppercase; letter-spacing: 0.02em; }
+tr:last-child td { border-bottom: 0; }
+.when-now { color: var(--good-text); font-weight: 600; }
+.when-now::before { content: "\25CF"; margin-right: 6px; font-size: 10px; vertical-align: 1px; }
+.when-later .rel { font-weight: 600; }
+.when-later .abs { color: var(--muted); margin-left: 6px; }
+.table-wrap { overflow-x: auto; padding: 4px 8px; }
+
+/* small multiples */
+.multiples { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+.chart-card h3 { margin: 0; font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.02em; }
+.chart-card .meta { color: var(--muted); font-size: 12px; }
+.chart-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+svg { display: block; overflow: visible; }
+svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.baseline { stroke: var(--axis); stroke-width: 1; }
+.now-line { stroke: var(--ink-2); stroke-width: 1; }
+
+/* heatmap */
+.heat-grid { display: grid; grid-template-columns: 40px repeat(24, 1fr); gap: 2px; }
+.heat-grid .cell { aspect-ratio: 1.6; border-radius: 3px; min-height: 14px; }
+.heat-grid .cell:hover { box-shadow: 0 0 0 2px var(--ink); }
+.heat-grid .rowlab, .heat-grid .collab { font-size: 11px; color: var(--muted); }
+.heat-grid .rowlab { align-self: center; }
+.heat-grid .collab { text-align: center; }
+.heat-legend { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+.heat-legend .ramp { width: 180px; height: 8px; border-radius: 4px; }
+
+/* nodes */
+.nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.node { padding: 12px 14px; }
+.node .nm { display: flex; justify-content: space-between; font-size: 13px; }
+.node .nm b { font-weight: 600; }
+.slots { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.slot { width: 14px; height: 14px; border-radius: 4px; }
+.node .st { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.node.offline .st { color: var(--critical); }
+
+/* tooltip */
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; background: var(--surface); color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ring), 0 6px 20px rgba(0,0,0,0.12); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transition: opacity 80ms; max-width: 240px;
+}
+#tip b { font-weight: 600; }
+footer { margin-top: 36px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+footer ul { padding-left: 18px; margin: 6px 0; }
+.err { padding: 40px; text-align: center; color: var(--ink-2); }
+@media (max-width: 760px) {
+  .hero { grid-template-columns: 1fr 1fr; }
+  .hero .tile:first-child { grid-column: 1 / -1; }
+  .multiples { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="title">GPU availability</h1>
+      <div class="sub small"><span id="live" class="live-dot"></span><span id="updated">Loading…</span></div>
+    </div>
+    <button class="toggle" id="theme" type="button" aria-label="Toggle dark mode">◐ Theme</button>
+  </header>
+  <div id="app"></div>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+"use strict";
+const REFRESH_MS = 5 * 60 * 1000;
+// Filled in at build time: live data on the `data` branch (raw.githubusercontent.com). Empty = local data.json.
+const DATA_URL = "https://raw.githubusercontent.com/DylanJoo/compute-monitor/data/data.json";
+const $ = (s, el = document) => el.querySelector(s);
+const h = (tag, attrs = {}, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") el.className = v; else if (k === "html") el.innerHTML = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) el.append(k.nodeType ? k : String(k));
+  return el;
+};
+const NS = "http://www.w3.org/2000/svg";
+const s = (tag, attrs = {}) => {
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+};
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let DATA = null;
+let heatType = null, heatMetric = "mean";
+
+// ---------- time helpers (render in cluster time, not viewer time) ----------
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const clusterDate = (ts) => new Date((ts + DATA.utc_offset) * 1000);
+const fmtClock = (ts) => { const d = clusterDate(ts); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
+const fmtDay = (ts) => DAYS[(clusterDate(ts).getUTCDay() + 6) % 7];
+const fmtAbs = (ts) => `${fmtDay(ts)} ${fmtClock(ts)}`;
+const fmtDate = (ts) => { const d = clusterDate(ts); return `${fmtDay(ts)} ${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+function fmtRel(sec) {
+  const m = Math.round(sec / 60);
+  if (m < 60) return `${m} min`;
+  if (m < 48 * 60) return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  return `${Math.floor(m / 1440)}d ${Math.round((m % 1440) / 60)}h`;
+}
+const startOfClusterDay = (ts) => ts - ((ts + DATA.utc_offset) % 86400 + 86400) % 86400;
+
+// ---------- tooltip ----------
+const tip = $("#tip");
+function showTip(e, html) {
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const pad = 14, r = tip.getBoundingClientRect();
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.opacity = 0; };
+
+// ---------- shared step/area chart ----------
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const steps = [5, 10, 20, 25, 50, 100, 200];
+  for (const st of steps) if (v <= st * 4) return Math.ceil(v / st) * st;
+  return Math.ceil(v / 500) * 500;
+}
+function areaChart(container, { ts, ys, step, height = 150, nowTs, tipFn, dayTicks = true, refLine }) {
+  const W = Math.max(container.clientWidth, 280), H = height;
+  const m = { l: 30, r: 8, t: 8, b: 22 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const t0 = ts[0], t1 = ts[ts.length - 1];
+  const yMax = niceMax(Math.max(1, ...ys, refLine || 0));
+  const X = (t) => m.l + ((t - t0) / (t1 - t0)) * iw;
+  const Y = (v) => m.t + ih - (v / yMax) * ih;
+  const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img" });
+
+  for (let i = 0; i <= 2; i++) {
+    const v = (yMax / 2) * i, y = Y(v);
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: y, y2: y, class: i === 0 ? "baseline" : "gridline" }));
+    const tx = s("text", { x: m.l - 6, y: y + 3.5, "text-anchor": "end" }); tx.textContent = v; svg.append(tx);
+  }
+  if (dayTicks) {
+    const every = Math.max(1, Math.ceil(64 / ((86400 / (t1 - t0)) * iw)));  // keep labels >= 64px apart
+    let k = 0;
+    for (let d = startOfClusterDay(t0) + 86400; d < t1; d += 86400, k++) {
+      const x = X(d);
+      svg.append(s("line", { x1: x, x2: x, y1: m.t, y2: m.t + ih, class: "gridline" }));
+      if (k % every === 0 && x < W - m.r - 50) { const tx = s("text", { x: x + 4, y: H - 6 }); tx.textContent = fmtDate(d); svg.append(tx); }
+    }
+  }
+  // step path
+  let d = `M${X(ts[0])},${Y(ys[0])}`;
+  for (let i = 1; i < ts.length; i++) d += step ? `H${X(ts[i])}V${Y(ys[i])}` : `L${X(ts[i])},${Y(ys[i])}`;
+  svg.append(s("path", { d: `${d}V${Y(0)}H${X(ts[0])}Z`, fill: "var(--free-wash)" }));
+  svg.append(s("path", { d, fill: "none", stroke: "var(--free)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  if (nowTs != null) {
+    const x = X(nowTs);
+    svg.append(s("line", { x1: x, x2: x, y1: m.t, y2: m.t + ih, class: "now-line" }));
+  }
+  // end value label
+  const last = ys[ys.length - 1];
+  svg.append(s("circle", { cx: X(t1), cy: Y(last), r: 4, fill: "var(--free)", stroke: "var(--surface)", "stroke-width": 2 }));
+
+  // crosshair
+  const cross = s("line", { y1: m.t, y2: m.t + ih, stroke: "var(--ink-2)", "stroke-width": 1, opacity: 0 });
+  const dot = s("circle", { r: 4, fill: "var(--free)", stroke: "var(--surface)", "stroke-width": 2, opacity: 0 });
+  svg.append(cross, dot);
+  const hit = s("rect", { x: m.l, y: 0, width: iw, height: H, fill: "transparent" });
+  hit.addEventListener("mousemove", (e) => {
+    const r = svg.getBoundingClientRect();
+    const t = t0 + ((e.clientX - r.left - m.l) / iw) * (t1 - t0);
+    let i = 0; while (i < ts.length - 1 && ts[i + 1] <= t) i++;
+    if (!step && i < ts.length - 1 && t - ts[i] > ts[i + 1] - t) i++;
+    const x = step ? e.clientX - r.left : X(ts[i]);
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.setAttribute("opacity", 0.5);
+    dot.setAttribute("cx", x); dot.setAttribute("cy", Y(ys[i])); dot.setAttribute("opacity", 1);
+    showTip(e, tipFn(ts[i], ys[i], step ? t : ts[i]));
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); hideTip(); });
+  svg.append(hit);
+  container.replaceChildren(svg);
+}
+
+// ---------- sections ----------
+function forMeTotal() {
+  const L = DATA.limits;
+  const sum = DATA.types.filter((t) => t.allowed).reduce((a, t) => a + t.for_me, 0);
+  return L.total == null ? sum : Math.max(0, Math.min(sum, L.total - L.used_total));
+}
+
+function heroSection() {
+  const T = DATA.types, L = DATA.limits;
+  const tot = (k) => T.reduce((a, t) => a + t[k], 0);
+  const mine = forMeTotal();
+  const best = T.filter((t) => t.allowed && t.for_me > 0).map((t) => `${t.for_me} ${t.type.toUpperCase()}`).join(" · ");
+  const capNote = L.total != null
+    ? `Your QOS${L.qos ? ` (${L.qos})` : ""} allows ${L.total} GPUs at once; you're using ${L.used_total}.`
+    : "No per-user GPU cap found.";
+  const total = tot("total");
+  return h("div", { class: "hero" },
+    h("div", { class: "card tile" },
+      h("div", { class: "label" }, "GPUs you can start on right now"),
+      h("div", { class: "big" }, mine),
+      h("div", { class: "sub small" }, best || "Nothing free within your limits. See the forecast below."),
+      h("div", { class: "note" }, capNote)),
+    tile("Free on healthy nodes", tot("free"), `${tot("usable")} have enough CPU and RAM left to use`),
+    tile("In use", tot("alloc"), `${Math.round((tot("alloc") / Math.max(1, total - tot("offline"))) * 100)}% of online GPUs`),
+    tile("Offline", tot("offline"), `of ${total} GPUs on drained or down nodes`));
+}
+const tile = (label, value, note) =>
+  h("div", { class: "card tile" }, h("div", { class: "label" }, label), h("div", { class: "value" }, value), h("div", { class: "note" }, note));
+
+function whenText(ts, now) {
+  if (ts == null) return null;
+  if (ts <= now + 60) return { now: true, txt: "now" };
+  return { now: false, rel: `in ${fmtRel(ts - now)}`, abs: fmtAbs(ts) };
+}
+
+function typesSection() {
+  const now = DATA.generated_at;
+  const cards = DATA.types.map((t) => {
+    const online = t.total - t.offline;
+    const w = (n) => `flex:${n} 1 0`;
+    const next = whenText(t.earliest["1"], now);
+    let access;
+    if (online === 0) access = h("span", { class: "badge" }, h("span", { class: "ico" }, "⚠"), "All offline");
+    else if (!t.allowed) access = h("span", { class: "badge" }, h("span", { class: "ico" }, "⊘"), "Not in your QOS");
+    else if (t.for_me > 0) access = h("span", { class: "badge ok" }, h("span", { class: "ico" }, "✓"), `${t.for_me} for you`);
+    else access = h("span", { class: "badge" }, h("span", { class: "ico" }, "◷"), "Wait");
+    const bar = h("div", { class: "segbar", role: "img", "aria-label": `${t.free} free, ${t.alloc} in use, ${t.offline} offline` },
+      t.free ? h("span", { class: "seg-free", style: w(t.free) }) : null,
+      t.alloc ? h("span", { class: "seg-busy", style: w(t.alloc) }) : null,
+      t.offline ? h("span", { class: "seg-off", style: w(t.offline) }) : null);
+    bar.addEventListener("mousemove", (e) => showTip(e, `<b>${t.type.toUpperCase()}</b><br>${t.free} free · ${t.alloc} in use · ${t.offline} offline<br>${t.usable} usable (enough CPU and RAM)`));
+    bar.addEventListener("mouseleave", hideTip);
+    const pend = t.pending.competing + t.pending.blocked;
+    return h("div", { class: "card type-card" },
+      h("div", { class: "top" }, h("span", { class: "name" }, t.type), access),
+      h("div", { class: "value" }, t.usable, h("span", { class: "muted", style: "font-size:15px;font-weight:500" }, ` / ${online} free`)),
+      bar,
+      h("dl", {},
+        h("dt", {}, "Next free"), h("dd", {}, t.usable > 0 ? "now" : next ? `${next.rel} · ${next.abs}` : "–"),
+        h("dt", {}, "Your cap"), h("dd", {}, t.my_cap == null ? "none" : `${t.my_cap}${t.my_used ? ` (using ${t.my_used})` : ""}`),
+        h("dt", {}, "Queued"), h("dd", {}, pend ? `${t.pending.competing} waiting · ${t.pending.blocked} held` : "none"),
+        h("dt", {}, "Offline"), h("dd", {}, t.offline || "none")));
+  });
+  return h("section", {},
+    h("div", { class: "section-head" },
+      h("div", {}, h("h2", {}, "By GPU type"), h("p", { class: "sub small" }, "Big number = free GPUs on nodes that also have spare CPU and RAM.")),
+      h("div", { class: "key" },
+        h("span", {}, h("i", { class: "seg-free" }), "Free"),
+        h("span", {}, h("i", { class: "seg-busy" }), "In use"),
+        h("span", {}, h("i", { class: "seg-off" }), "Offline"))),
+    h("div", { class: "types" }, cards));
+}
+
+function whenSection() {
+  const now = DATA.generated_at, L = DATA.limits;
+  const ks = [1, 2, 4, 8];
+  const rows = DATA.types.map((t) => {
+    const cells = ks.map((k) => {
+      const cap = Math.min(...[t.my_cap, L.total].filter((x) => x != null), Infinity);
+      if (!t.allowed || k > cap) return h("td", { class: "muted" }, t.allowed ? "over your cap" : "not allowed");
+      const maxNode = Math.max(0, ...DATA.nodes.filter((n) => n.gpu_type === t.type).map((n) => n.gpu_total));
+      if (k > maxNode) return h("td", { class: "muted" }, "no node this big");
+      const w = whenText(t.earliest[String(k)], now);
+      if (!w) return h("td", { class: "muted" }, "not in 72h+");
+      if (w.now) return h("td", { class: "when-now" }, "now");
+      return h("td", { class: "when-later" }, h("span", { class: "rel" }, w.rel), h("span", { class: "abs" }, w.abs));
+    });
+    return h("tr", {}, h("td", { class: "type" }, t.type), cells);
+  });
+  const jl = DATA.job_lengths.all;
+  return h("section", {},
+    h("div", { class: "section-head" },
+      h("div", {}, h("h2", {}, "When can I get k GPUs on one node?"),
+        h("p", { class: "sub small" }, "Worst case: every running job runs to its time limit, and nobody else grabs the GPUs first.",
+          jl ? ` In practice, GPU time is mostly held by jobs that end at ~${Math.round(jl.median_used * 100)}% of their limit, so expect sooner.` : ""))),
+    h("div", { class: "card table-wrap" },
+      h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Type"), ks.map((k) => h("th", {}, `${k} GPU${k > 1 ? "s" : ""}`)))), h("tbody", {}, rows))));
+}
+
+function forecastSection() {
+  const wrap = h("div", { class: "multiples" });
+  const now = DATA.generated_at;
+  const cards = DATA.types.filter((t) => t.total - t.offline > 0).map((t) => {
+    const chart = h("div", {});
+    const card = h("div", { class: "card chart-card" },
+      h("div", { class: "head" }, h("h3", {}, t.type), h("span", { class: "meta" }, `${t.usable} now → ${t.forecast[t.forecast.length - 1]} in 72h`)),
+      chart);
+    card._draw = () => areaChart(chart, {
+      ts: DATA.forecast_t, ys: t.forecast, step: true, height: 140, nowTs: now,
+      tipFn: (ts, v, at) => `<b>${fmtAbs(at)}</b> · in ${fmtRel(Math.max(0, at - now))}<br>${v} ${t.type.toUpperCase()} usable (at the latest)`,
+    });
+    return card;
+  });
+  wrap.append(...cards);
+  const sec = h("section", {},
+    h("div", { class: "section-head" },
+      h("div", {}, h("h2", {}, "Next 72 hours"), h("p", { class: "sub small" }, "Usable GPUs over time if every running job runs to its limit. This is the latest they could free up; real jobs usually finish earlier."))),
+    wrap);
+  sec._cards = cards;
+  return sec;
+}
+
+function heatSection() {
+  const types = DATA.types.filter((t) => DATA.weekly[t.type] && t.total - t.offline > 0);
+  if (!heatType || !types.find((t) => t.type === heatType))
+    heatType = (types.find((t) => t.allowed && t.type !== "v100") || types[0] || {}).type;
+  const sec = h("section", {});
+  const ramp = css("--seq").split(",").map((x) => x.trim());
+  const draw = () => {
+    const W = DATA.weekly[heatType];
+    const t = DATA.types.find((x) => x.type === heatType);
+    const vals = W[heatMetric];
+    const max = heatMetric === "p_any" ? 1 : Math.max(1, ...vals.flat().filter((v) => v != null));
+    const color = (v) => v == null ? css("--empty") : ramp[Math.min(ramp.length - 1, Math.floor((v / max) * (ramp.length - 1) + 0.0001))];
+    const grid = h("div", { class: "heat-grid", role: "img", "aria-label": `Typical free ${heatType} by weekday and hour` });
+    grid.append(h("span", {}));
+    for (let hr = 0; hr < 24; hr++) grid.append(h("span", { class: "collab" }, hr % 3 === 0 ? String(hr).padStart(2, "0") : ""));
+    DAYS.forEach((day, di) => {
+      grid.append(h("span", { class: "rowlab" }, day));
+      for (let hr = 0; hr < 24; hr++) {
+        const v = vals[di][hr], mean = W.mean[di][hr], p = W.p_any[di][hr];
+        const c = h("span", { class: "cell", style: `background:${color(v)}` });
+        c.addEventListener("mousemove", (e) => showTip(e, mean == null ? `<b>${day} ${String(hr).padStart(2, "0")}:00</b><br>no data yet`
+          : `<b>${day} ${String(hr).padStart(2, "0")}:00–${String(hr + 1).padStart(2, "0")}:00</b><br>${mean.toFixed(1)} ${heatType.toUpperCase()} free on average<br>≥1 free ${Math.round(p * 100)}% of the time`));
+        c.addEventListener("mouseleave", hideTip);
+        grid.append(c);
+      }
+    });
+    const chips = h("div", { class: "chips" }, types.map((x) =>
+      h("button", { class: "chip", type: "button", "aria-pressed": String(x.type === heatType), onclick: () => { heatType = x.type; draw(); } }, x.type.toUpperCase())));
+    const metric = h("div", { class: "chips" },
+      [["mean", "Avg free"], ["p_any", "Chance ≥1 free"]].map(([k, lab]) =>
+        h("button", { class: "chip", type: "button", "aria-pressed": String(k === heatMetric), onclick: () => { heatMetric = k; draw(); } }, lab)));
+    const legend = h("div", { class: "heat-legend" },
+      h("span", {}, "0"), h("span", { class: "ramp", style: `background:linear-gradient(90deg,${ramp.join(",")})` }),
+      h("span", {}, heatMetric === "p_any" ? "100%" : `${max.toFixed(0)} GPUs`),
+      h("span", { style: "margin-left:auto" }, `Times in ${DATA.tz} · last ${DATA.params.history_days} days`));
+    sec.replaceChildren(
+      h("div", { class: "section-head" },
+        h("div", {}, h("h2", {}, "When is it usually free?"),
+          h("p", { class: "sub small" }, "Typical free GPUs by weekday and hour. Use it to pick when to submit.", t && !t.allowed ? " (Not in your QOS.)" : "")),
+        h("div", { class: "chips", style: "gap:12px" }, metric)),
+      h("div", { class: "card" }, h("div", { style: "margin-bottom:14px" }, chips), grid, legend));
+  };
+  draw();
+  return sec;
+}
+
+function timelineSection() {
+  const wrap = h("div", { class: "multiples" });
+  const cards = DATA.types.filter((t) => t.total - t.offline > 0).map((t) => {
+    const chart = h("div", {});
+    const avg = t.timeline.reduce((a, b) => a + b, 0) / Math.max(1, t.timeline.length);
+    const card = h("div", { class: "card chart-card" },
+      h("div", { class: "head" }, h("h3", {}, t.type), h("span", { class: "meta" }, `avg ${avg.toFixed(1)} free`)), chart);
+    card._draw = () => areaChart(chart, {
+      ts: DATA.timeline_t, ys: t.timeline, step: false, height: 120,
+      tipFn: (ts, v) => `<b>${fmtDate(ts)} ${fmtClock(ts)}</b><br>${v.toFixed(1)} ${t.type.toUpperCase()} free (hourly avg)`,
+    });
+    return card;
+  });
+  wrap.append(...cards);
+  const sec = h("section", {},
+    h("div", { class: "section-head" },
+      h("div", {}, h("h2", {}, `Last ${Math.round(DATA.timeline_t.length / 24)} days`),
+        h("p", { class: "sub small" }, "Free GPUs, hourly average. Before monitoring began, this is rebuilt from job accounting and today's node capacity."))),
+    wrap);
+  sec._cards = cards;
+  return sec;
+}
+
+function nodesSection() {
+  const nodes = DATA.nodes.map((n) => {
+    const slots = h("div", { class: "slots" });
+    for (let i = 0; i < n.gpu_total; i++) {
+      let bg;
+      if (!n.available) bg = "repeating-linear-gradient(45deg, var(--offline) 0 2px, transparent 2px 5px)";
+      else if (i < n.gpu_alloc) bg = "var(--busy)";
+      else bg = "var(--free)";
+      slots.append(h("span", { class: "slot", style: `background:${bg}` }));
+    }
+    const card = h("div", { class: `card node${n.available ? "" : " offline"}` },
+      h("div", { class: "nm" }, h("b", {}, n.name), h("span", { class: "muted" }, n.gpu_type.toUpperCase())),
+      slots,
+      h("div", { class: "st" }, n.available ? `${n.gpu_free} of ${n.gpu_total} free${n.usable < n.gpu_free ? ` · ${n.usable} usable (CPU/RAM tight)` : ""}` : `⚠ offline · ${n.state.toLowerCase()}`));
+    card.addEventListener("mousemove", (e) => showTip(e, `<b>${n.name}</b> · ${n.gpu_type.toUpperCase()}<br>State: ${n.state}<br>${n.gpu_alloc} in use · ${n.gpu_free} free · ${n.usable} usable`));
+    card.addEventListener("mouseleave", hideTip);
+    return card;
+  });
+  return h("section", {},
+    h("div", { class: "section-head" },
+      h("div", {}, h("h2", {}, "Nodes"), h("p", { class: "sub small" }, "One square per GPU.")),
+      h("div", { class: "key" },
+        h("span", {}, h("i", { class: "seg-free" }), "Free"),
+        h("span", {}, h("i", { class: "seg-busy" }), "In use"),
+        h("span", {}, h("i", { class: "seg-off" }), "Offline"))),
+    h("div", { class: "nodes" }, nodes));
+}
+
+function footer() {
+  const p = DATA.params, jl = DATA.job_lengths.all;
+  return h("footer", {},
+    h("b", {}, "How to read this"),
+    h("ul", {},
+      h("li", {}, `"Usable" means a free GPU on a healthy node that also has ≥${p.cpus_per_gpu} CPUs and ≥${p.mem_gb_per_gpu} GB RAM spare per GPU.`),
+      h("li", {}, "Forecasts are worst case: running jobs are assumed to use their full time limit. Pending jobs in the queue may take freed GPUs first."),
+      jl ? h("li", {}, `Over the last ${p.history_days} days, half of GPU time went to jobs that ended within ${Math.round(jl.median_used * 100)}% of their limit.`) : null,
+      h("li", {}, `History: ${p.snapshot_hours} hours from live snapshots; earlier hours rebuilt from job accounting.`)),
+    h("div", {}, "Built from Slurm state. No usernames or job IDs are published."));
+}
+
+// ---------- render ----------
+let drawables = [];
+function render() {
+  const app = $("#app");
+  document.title = DATA.title;
+  $("#title").textContent = DATA.title;
+  const age = Date.now() / 1000 - DATA.generated_at;
+  $("#updated").textContent = `Updated ${fmtAbs(DATA.generated_at)} ${DATA.tz} (${age < 90 ? "just now" : fmtRel(age) + " ago"}) · data updates every 5 min`;
+  $("#live").classList.toggle("stale", age > 30 * 60);
+  const fc = forecastSection(), tl = timelineSection();
+  app.replaceChildren(heroSection(), typesSection(), whenSection(), fc, heatSection(), tl, nodesSection(), footer());
+  drawables = [...fc._cards, ...tl._cards];
+  drawables.forEach((c) => c._draw());
+}
+
+async function load() {
+  try {
+    // Prefer the frequently-updated data branch; fall back to the copy deployed with the page.
+    let fresh = null;
+    for (const url of [DATA_URL, "data.json"].filter(Boolean)) {
+      try {
+        const r = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) continue;
+        const d = await r.json();
+        if (!fresh || d.generated_at > fresh.generated_at) fresh = d;
+        if (url === DATA_URL) break;
+      } catch (_) { /* try the next source */ }
+    }
+    if (!fresh) throw new Error("no data");
+    DATA = fresh;
+    render();
+  } catch (e) {
+    if (!DATA) $("#app").replaceChildren(h("div", { class: "card err" }, "Couldn't load data.json. Run ", h("code", {}, "python3 -m gpumon update"), " first."));
+  }
+}
+
+// theme toggle: OS default, then manual override persisted
+const savedTheme = localStorage.getItem("gpumon-theme");
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+$("#theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("gpumon-theme", next);
+  if (DATA) render();
+});
+let rt;
+addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => drawables.forEach((c) => c._draw()), 120); });
+setInterval(load, REFRESH_MS);
+load();
+</script>
+</body>
+</html>
