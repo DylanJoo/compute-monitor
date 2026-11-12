@@ -519,7 +519,7 @@ function render() {
   document.title = DATA.title;
   $("#title").textContent = DATA.title;
   const age = Date.now() / 1000 - DATA.generated_at;
-  $("#updated").textContent = `Updated ${fmtAbs(DATA.generated_at)} ${DATA.tz} (${age < 90 ? "just now" : fmtRel(age) + " ago"}) · refreshes every 5 min`;
+  $("#updated").textContent = `Updated ${fmtAbs(DATA.generated_at)} ${DATA.tz} (${age < 90 ? "just now" : fmtRel(age) + " ago"}) · data updates every 10 min`;
   $("#live").classList.toggle("stale", age > 30 * 60);
   const fc = forecastSection(), tl = timelineSection();
   app.replaceChildren(heroSection(), typesSection(), whenSection(), fc, heatSection(), tl, nodesSection(), footer());
