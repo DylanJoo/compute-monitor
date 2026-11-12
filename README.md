@@ -1,7 +1,7 @@
 # compute-monitor
 
 See which GPUs on the Slurm cluster you can use **right now**, and **when** more will free up.
-A cron job on a login node rebuilds the dashboard every 10 minutes and publishes it to
+A cron job on a login node refreshes the dashboard every 5 minutes and publishes it to
 **GitHub Pages**: `https://dylanjoo.github.io/compute-monitor/`.
 
 - **Live**: free GPUs per type and node, counting only GPUs on healthy nodes that also have
@@ -26,17 +26,32 @@ python3 -m gpumon serve           # optional local dashboard on :8765
 `scripts/cron_update.sh` collects, rebuilds and publishes. Installed on a login node with:
 
 ```bash
-( crontab -l 2>/dev/null; echo "*/10 * * * * $PWD/scripts/cron_update.sh" ) | crontab -
+( crontab -l 2>/dev/null; echo "*/5 * * * * $PWD/scripts/cron_update.sh" ) | crontab -
 ```
+
+Two branches, both force-pushed as a single commit (no history buildup; `main` is never touched):
+
+- `data`: just `data.json`, pushed **every run**. The page fetches it from
+  `raw.githubusercontent.com` (5-minute cache, no Pages rebuild).
+- `gh-pages`: the page itself, pushed **only when `index.html` changes**. This keeps us under
+  GitHub Pages' soft limit of 10 rebuilds/hour and avoids its 10-minute CDN cache for data.
 
 GitHub side, once: **Settings → Pages → Source: Deploy from a branch → `gh-pages` / `(root)`**.
 
-- `gh-pages` is force-pushed as a single commit each run, so it never accumulates history,
-  and `main` is never touched by the automation.
-- The published `data.json` contains **only GPU counts per type/node**: no usernames or job IDs.
+- The published data contains **only GPU counts per type/node**: no usernames or job IDs.
   Node hostnames, GPU models and your QOS tier *are* visible; the repo is public, so is the page.
 - Cron runs on one specific login node (`crontab` is per-host); if that node is rebuilt, reinstall.
   Logs: `data/cron.log`. The page shows an amber dot when data is more than 30 min old.
+
+### Stopping updates
+
+```bash
+crontab -l | grep -v cron_update.sh | crontab -    # stop (run on the same login node)
+crontab -l                                          # confirm it's gone
+```
+
+The page stays online showing the last data (with the amber "stale" dot). To take the page down
+too: **Settings → Pages → Unpublish site**, or delete the `gh-pages` and `data` branches.
 
 ## Configuration
 

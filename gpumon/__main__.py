@@ -6,8 +6,10 @@
   python3 -m gpumon publish           # update + force-push build/ to the gh-pages branch
 """
 import argparse
+import hashlib
 import http.server
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -36,7 +38,8 @@ def collect(db, now):
     return nodes
 
 
-def update(write=True):
+def update(write=True, data_url=""):
+    """Collect + build. `data_url` is where the page fetches live data from ("" = its own data.json)."""
     now = int(time.time())
     db = store.connect()
     nodes = collect(db, now)
@@ -49,7 +52,8 @@ def update(write=True):
         tmp = out / "data.json.tmp"
         tmp.write_text(json.dumps(data, separators=(",", ":")))
         tmp.replace(out / "data.json")
-        shutil.copy(WEB_DIR / "index.html", out / "index.html")
+        page = (WEB_DIR / "index.html").read_text().replace("__GPUMON_DATA_URL__", data_url)
+        (out / "index.html").write_text(page)
         (out / ".nojekyll").touch()
     return data
 
@@ -117,21 +121,52 @@ def cmd_serve(args):
     srv.serve_forever()
 
 
-def cmd_publish(args):
-    """Force-push build/ as a single-commit gh-pages branch, so history never grows."""
-    if not args.no_update:
-        update()
-    remote = args.remote or subprocess.run(["git", "-C", str(config.ROOT), "remote", "get-url", "origin"],
-                                           check=True, capture_output=True, text=True).stdout.strip()
+def _origin():
+    return subprocess.run(["git", "-C", str(config.ROOT), "remote", "get-url", "origin"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _raw_url(remote, branch="data", path="data.json"):
+    """git@github.com:Owner/repo.git or https://github.com/Owner/repo -> raw.githubusercontent.com URL."""
+    m = re.search(r"github\.com[:/]([^/]+)/(.+?)(?:\.git)?$", remote)
+    return f"https://raw.githubusercontent.com/{m.group(1)}/{m.group(2)}/{branch}/{path}" if m else ""
+
+
+def _force_push(files, branch, remote):
+    """Push `files` ({name: Path}) as a single fresh commit on `branch`, replacing whatever was there."""
     with tempfile.TemporaryDirectory() as tmp:
-        shutil.copytree(config.BUILD_DIR, tmp, dirs_exist_ok=True)
+        for name, src in files.items():
+            shutil.copy(src, Path(tmp) / name)
         git = partial(subprocess.run, cwd=tmp, check=True, capture_output=True, text=True)
-        git(["git", "init", "-q", "-b", "gh-pages"])
+        git(["git", "init", "-q", "-b", branch])
         git(["git", "add", "-A"])
         git(["git", "-c", "user.name=gpumon", "-c", "user.email=gpumon@users.noreply.github.com",
-             "commit", "-q", "-m", f"dashboard update {time.strftime('%Y-%m-%d %H:%M %Z')}"])
-        git(["git", "push", "-q", "--force", remote, "gh-pages:gh-pages"])
-    print(f"published to {remote} (gh-pages)")
+             "commit", "-q", "-m", f"update {time.strftime('%Y-%m-%d %H:%M %Z')}"])
+        git(["git", "push", "-q", "--force", remote, f"{branch}:{branch}"])
+
+
+def cmd_publish(args):
+    """Push fresh data to the `data` branch every run; push the page to `gh-pages` only when it changed.
+
+    GitHub Pages rebuilds (soft limit 10/hour, 10-min CDN cache) happen only for gh-pages, so the
+    frequent data updates go to a separate branch that the page reads via raw.githubusercontent.com
+    (5-min cache, no rebuild).
+    """
+    remote = args.remote or _origin()
+    raw = _raw_url(remote)
+    if not args.no_update:
+        update(data_url=raw)
+    out = config.BUILD_DIR
+    _force_push({"data.json": out / "data.json"}, "data", remote)
+    print(f"published data to {remote} (data branch)")
+
+    page_hash = hashlib.sha256((out / "index.html").read_bytes()).hexdigest()
+    marker = config.DB_PATH.parent / ".pages_hash"
+    if args.force_pages or not marker.exists() or marker.read_text() != page_hash:
+        _force_push({"index.html": out / "index.html", "data.json": out / "data.json",
+                     ".nojekyll": out / ".nojekyll"}, "gh-pages", remote)
+        marker.write_text(page_hash)
+        print("page changed: published gh-pages")
 
 
 def main():
@@ -150,6 +185,7 @@ def main():
     s = sub.add_parser("publish", help="update + push to gh-pages")
     s.add_argument("--remote", help="git remote URL (default: this repo's origin)")
     s.add_argument("--no-update", action="store_true", help="push the existing build/ as-is")
+    s.add_argument("--force-pages", action="store_true", help="re-push gh-pages even if the page is unchanged")
     s.set_defaults(fn=cmd_publish)
     args = p.parse_args()
     args.fn(args)

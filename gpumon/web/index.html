@@ -169,6 +169,8 @@ footer ul { padding-left: 18px; margin: 6px 0; }
 <script>
 "use strict";
 const REFRESH_MS = 5 * 60 * 1000;
+// Filled in at build time: live data on the `data` branch (raw.githubusercontent.com). Empty = local data.json.
+const DATA_URL = "__GPUMON_DATA_URL__";
 const $ = (s, el = document) => el.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -519,7 +521,7 @@ function render() {
   document.title = DATA.title;
   $("#title").textContent = DATA.title;
   const age = Date.now() / 1000 - DATA.generated_at;
-  $("#updated").textContent = `Updated ${fmtAbs(DATA.generated_at)} ${DATA.tz} (${age < 90 ? "just now" : fmtRel(age) + " ago"}) · data updates every 10 min`;
+  $("#updated").textContent = `Updated ${fmtAbs(DATA.generated_at)} ${DATA.tz} (${age < 90 ? "just now" : fmtRel(age) + " ago"}) · data updates every 5 min`;
   $("#live").classList.toggle("stale", age > 30 * 60);
   const fc = forecastSection(), tl = timelineSection();
   app.replaceChildren(heroSection(), typesSection(), whenSection(), fc, heatSection(), tl, nodesSection(), footer());
@@ -529,9 +531,19 @@ function render() {
 
 async function load() {
   try {
-    const r = await fetch(`data.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    DATA = await r.json();
+    // Prefer the frequently-updated data branch; fall back to the copy deployed with the page.
+    let fresh = null;
+    for (const url of [DATA_URL, "data.json"].filter(Boolean)) {
+      try {
+        const r = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) continue;
+        const d = await r.json();
+        if (!fresh || d.generated_at > fresh.generated_at) fresh = d;
+        if (url === DATA_URL) break;
+      } catch (_) { /* try the next source */ }
+    }
+    if (!fresh) throw new Error("no data");
+    DATA = fresh;
     render();
   } catch (e) {
     if (!DATA) $("#app").replaceChildren(h("div", { class: "card err" }, "Couldn't load data.json. Run ", h("code", {}, "python3 -m gpumon update"), " first."));

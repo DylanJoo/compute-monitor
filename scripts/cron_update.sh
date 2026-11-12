@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cron entry point: collect Slurm state, rebuild the dashboard, push it to gh-pages.
-#   */10 * * * * /path/to/compute-monitor/scripts/cron_update.sh
+#   */5 * * * * /path/to/compute-monitor/scripts/cron_update.sh
 # Set GPUMON_NO_PUBLISH=1 to only rebuild locally.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
